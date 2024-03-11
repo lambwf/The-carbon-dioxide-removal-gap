@@ -1,0 +1,232 @@
+---
+title: "the-cdr-gap-sm-figure-fluxes"
+author: "William F. Lamb"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+rm(list = ls())
+knitr::opts_chunk$set(echo = FALSE)
+
+library(openxlsx)
+library(tidyverse)
+library(ggrepel)
+library(patchwork)
+library(countrycode)
+
+source("C:/Users/lamw/ownCloud/Resources/r/figure_style.R")
+
+
+```
+
+```{r GCB_national_data}
+
+# ## Global Carbon Project CO2 LUC (https://www.icos-cp.eu/science-and-impact/global-carbon-budget/2022)
+# 
+# data_gcb_lulucf_blue = readxl::read_xlsx('../Data/National_LandUseChange_Carbon_Emissions_2023v1.0.xlsx',range="A8:GT182",sheet=2)
+# data_gcb_lulucf_hn = readxl::read_xlsx('../Data/National_LandUseChange_Carbon_Emissions_2023v1.0.xlsx',range="A8:GT182",sheet=3)
+# data_gcb_lulucf_oscar = readxl::read_xlsx('../Data//National_LandUseChange_Carbon_Emissions_2023v1.0.xlsx',range="A8:GT182",sheet=4)
+# 
+# data_gcb_lulucf_blue <- gather(data_gcb_lulucf_blue,country,blue,-`unit: Tg C/year`) %>% 
+#   rename(year=`unit: Tg C/year`)
+# data_gcb_lulucf_hn <- gather(data_gcb_lulucf_hn,country,hn,-`unit: Tg C/year`) %>% 
+#   rename(year=`unit: Tg C/year`)
+# data_gcb_lulucf_oscar <- gather(data_gcb_lulucf_oscar,country,oscar,-`unit: Tg C/year`) %>% 
+#   rename(year=`unit: Tg C/year`)
+# 
+# data_gcb_lulucf_ntl <- left_join(data_gcb_lulucf_blue,data_gcb_lulucf_hn)
+# data_gcb_lulucf_ntl <- left_join(data_gcb_lulucf_ntl,data_gcb_lulucf_oscar)
+# 
+# data_gcb_lulucf_ntl <- gather(data_gcb_lulucf_ntl %>% filter(year!="QF"),model,value,-year,-country) 
+# data_gcb_lulucf_ntl <- data_gcb_lulucf_ntl %>% 
+#   mutate(value=value*(44/12)) %>% 
+#   mutate(value=value/1000) %>% 
+#   mutate(year=as.numeric(year)) %>% 
+#   mutate(units="GtCO2")
+# 
+# # Note for coding simplicity I average the bookkeeping models at the national level, before aggregating to regions later on. Results would be slightly different if emissions were summed by model and region, then averaged. NAs ignored
+# 
+# data_gcb_lulucf_ntl <- data_gcb_lulucf_ntl %>% 
+#   group_by(country,year,units) %>% 
+#   summarise(value=mean(value,na.rm=TRUE))
+# 
+# data_gcb_lulucf_ntl <- spread(data_gcb_lulucf_ntl,year,value)
+# data_gcb_lulucf_ntl <- data_gcb_lulucf_ntl %>% 
+#   mutate(iso=countrycode(country,"country.name","iso3c")) %>% 
+#   mutate(iso=ifelse(country=="Netherlands Antilles","ANT",iso)) %>% 
+#   mutate(iso=ifelse(country=="Türkiye","TUR",iso)) %>% 
+#   mutate(iso=ifelse(country=="EU","EUR",iso))
+# 
+# data_gcb_lulucf_ntl <- gather(data_gcb_lulucf_ntl,year,value,-country,-units,-iso)
+# data_gcb_lulucf_ntl <- data_gcb_lulucf_ntl %>% 
+#   mutate(year=as.numeric(year)) %>% 
+#   select(country,iso,units,year,value)
+# 
+# rm(data_gcb_lulucf_blue,data_gcb_lulucf_hn,data_gcb_lulucf_oscar)
+# 
+# 
+# data_gcb_lulucf_ntl <- data_gcb_lulucf_ntl %>% 
+#   filter(year>=2011) %>% 
+#   filter(year<=2020) %>% 
+#   group_by(country,iso) %>% 
+#   summarise(value=mean(value,na.rm=TRUE)) %>% 
+#   mutate(value=value*1e9) %>% 
+#   mutate(value=value/1e6)
+
+
+```
+
+```{r check_OSCAR_data,fig.width=10,fig.height=4}
+
+# wd_oscar <- read.csv('../Data/Not public/gidden_et_al_2022_ar6_reanalysis_data.csv')
+# wd_oscar_meta <- read.csv('../Data/Not public/gidden_et_al_2022_ar6_reanalysis_meta.csv')
+# 
+# wd_oscar <- gather(wd_oscar,year,value,X1990:X2100)
+# wd_oscar$year = gsub("X","",wd_oscar$year)
+# wd_oscar <- wd_oscar %>% mutate(year=as.numeric(year))
+# wd_oscar <- left_join(wd_oscar,wd_oscar_meta %>% select(Model=model,Scenario=scenario,Category),by = join_by(Model, Scenario))
+# 
+# wd_oscar <- wd_oscar %>% 
+#   mutate(imp=ifelse(Scenario=="LowEnergyDemand_1.3_IPCC","Focus on Demand",NA)) %>% 
+#   mutate(imp=ifelse(Scenario=="SusDev_SDP-PkBudg1000","Focus on Renewables",imp)) %>% 
+#   mutate(imp=ifelse(Scenario=="SSP1_SPA1_19I_RE_LB","Focus on Carbon Removal",imp))
+# 
+# wd_oscar_summary <- wd_oscar %>% 
+#   filter(year>=2010) %>% 
+#   filter(Category %in% c("C1","C3")) %>% 
+#   filter(Variable %in% c("AR6 Reanalysis|OSCARv3.2|Carbon Removal|Land|Direct","AR6 Reanalysis|OSCARv3.2|Carbon Removal|Land"))
+# 
+# wd_oscar_summary <- spread(wd_oscar_summary,Variable,value)
+# wd_oscar_summary <- wd_oscar_summary %>% 
+#   mutate(ratio=`AR6 Reanalysis|OSCARv3.2|Carbon Removal|Land|Direct`/`AR6 Reanalysis|OSCARv3.2|Carbon Removal|Land`)
+# 
+# wd_oscar_summary %>% 
+#   ggplot(.,aes(x=year,y=ratio,group=Scenario)) +
+#   geom_path(color="#cccccc",alpha=0.1) +
+#   geom_path(data=wd_oscar_summary %>% filter(!is.na(imp)),aes(color=imp),size=0.75) +
+#   facet_grid(.~Region) +
+#   #scale_color_manual(values=c("#8da0cb","#66c2a5","#e78ac3")) +
+#   scale_color_brewer(palette="Set2") +
+#   ylim(0,5) +
+#   theme_wl()
+# 
+
+```
+
+```{r lt-leds-cdr,fig.width=10,fig.height=8}
+
+wd_lts <- read.xlsx("../Data/cdr_gap_data.xlsx",sheet = 4,rows = c(2:111))
+
+# number of countries with quantified strategies
+length(unique(wd_lts$country[!is.na(wd_lts$scenario)]))
+
+wd_lts <- wd_lts %>% 
+  filter(!is.na(scenario)) %>% 
+  filter(EU=="No")
+
+# number of countries with quantified strategies
+length(unique(wd_lts$country))
+
+
+wd_lts <- rbind(wd_lts %>%
+                  mutate(scenario=ifelse(scenario=="MAXMIN","MIN",scenario)),
+                wd_lts %>% 
+                  filter(scenario=="MAXMIN") %>% 
+                  mutate(scenario=ifelse(scenario=="MAXMIN","MAX",scenario)))
+
+wd_lts <- wd_lts %>% 
+  arrange(country) %>% 
+  select(-MAX,-MIN) %>% 
+  select(country,iso,scenario,lulucf_historical_other,lulucf_historical_forest,lulucf_historical_forest_direct,lulucf_lts_other,lulucf_lts_forest,lulucf_lts_forest_direct,novel_lts)
+
+wd_lts <- wd_lts %>%
+  mutate(lulucf_historical_forest_indirect=lulucf_historical_forest-lulucf_historical_forest_direct) %>%
+  mutate(lulucf_lts_forest_indirect=lulucf_lts_forest-lulucf_lts_forest_direct) %>% 
+  select(-lulucf_historical_forest,-lulucf_lts_forest)
+
+wd_lts <- gather(wd_lts,var,value,-country,-iso,-scenario) %>% 
+  mutate(category=ifelse(grepl("lts",var),paste0("lts_",scenario),"historical")) %>% 
+  mutate(remove=ifelse(category=="historical" & scenario=="MIN","yes",NA)) %>% 
+  filter(is.na(remove)) %>% 
+  select(-remove,-scenario)
+
+wd_lts$var <- gsub("lulucf_historical_","",wd_lts$var)
+wd_lts$var <- gsub("lulucf_lts_","",wd_lts$var)
+wd_lts$var <- gsub("_lts","",wd_lts$var)
+
+wd_lts <- wd_lts %>%
+  mutate(category=as.factor(category)) %>% 
+  mutate(var=as.factor(var))
+
+wd_lts$var <- fct_relevel(wd_lts$var,"novel","forest_direct","other","forest_indirect")
+
+
+
+groups <- wd_lts %>%
+  filter(category=="lts_MAX") %>%
+  group_by(country,iso) %>% 
+  summarise(value=sum(abs(value))) %>% 
+  mutate(group=ifelse(abs(value)>300,"large",NA)) %>%
+  mutate(group=ifelse(abs(value)>15 & abs(value)<400,"medium",group)) %>%
+  mutate(group=ifelse(abs(value)<15,"small",group)) %>% 
+  select(iso,group)
+
+wd_lts <- left_join(wd_lts,groups)
+
+
+```
+
+``` {r figure_lts_adjustments,fig.width=9,fig.height=10,fig.path="../Results/", dev=c('png','pdf','svg')}
+
+p3 <- wd_lts %>% 
+  filter(group=="small") %>% 
+  ggplot(.,aes(y=-value,x=category,fill=var)) +
+  geom_col(color="#636363") +
+  facet_grid(.~country,scales="free_x",
+             labeller = label_wrap_gen(width = 2, multi_line = TRUE)) +
+  scale_x_discrete(labels=c("Current","LTS max","LTS min")) +
+  scale_fill_brewer(palette="Set2",labels=c("Novel CDR","Conventional CDR on land (forest)","Conventional CDR on land (other)","Excluded indirect removals")) +
+  theme_wl() +
+  theme(panel.spacing = unit(0.2,'lines'),
+        axis.text.x = element_text(angle=45,hjust=1,vjust=1.1),
+        legend.title = element_blank(),
+        axis.title = element_blank(),
+        legend.position="none")
+
+p2 <- wd_lts %>% 
+  filter(group=="medium") %>% 
+  ggplot(.,aes(y=-value,x=category,fill=var)) +
+  geom_col(color="#636363") +
+  facet_grid(.~country,scales="free_x",
+             labeller = label_wrap_gen(width = 2, multi_line = TRUE)) +
+  scale_x_discrete(labels=c("Current","LTS max","LTS min")) +
+  scale_fill_brewer(palette="Set2",labels=c("Novel CDR","Conventional CDR on land (forest)","Conventional CDR on land (other)","Excluded indirect removals")) +
+  theme_wl() +
+  theme(panel.spacing = unit(0.2,'lines'),
+        axis.text.x = element_text(angle=45,hjust=1,vjust=1.1),
+        legend.title = element_blank(),
+        axis.title = element_blank(),
+        legend.position="none")
+
+p1 <- wd_lts %>% 
+  filter(group=="large") %>% 
+  ggplot(.,aes(y=-value,x=category,fill=var)) +
+  geom_col(color="#636363") +
+  facet_grid(.~country,scales="free_x",
+             labeller = label_wrap_gen(width = 2, multi_line = TRUE)) +
+  scale_x_discrete(labels=c("Current","LTS max","LTS min")) +
+  scale_fill_brewer(palette="Set2",labels=c("Novel CDR","Conventional CDR on land (forest)","Conventional CDR on land (other)","Excluded indirect removals")) +
+  theme_wl() +
+  theme(panel.spacing = unit(0.2,'lines'),
+        axis.text.x = element_text(angle=45,hjust=1,vjust=1.1),
+        legend.title = element_blank(),
+        axis.title = element_blank(),
+        plot.background = element_blank()) +
+  labs(title="Current (2011-2020) vs. proposed (2050) CDR in the long-term strategies (LTS)",
+       subtitle=bquote("Mt" ~CO[2]* "/yr"))
+
+wrap_elements(p1 + guide_area()) / wrap_elements(p2) / wrap_elements(p3) + plot_layout() +  plot_layout(guides = 'collect',heights=c(1.2,1,1))
+
+```
+

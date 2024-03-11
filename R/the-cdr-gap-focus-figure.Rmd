@@ -1,0 +1,102 @@
+---
+title: "the-carbon-dioxide-removal-focus-figure"
+author: "William F. Lamb"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+
+rm(list = ls())
+knitr::opts_chunk$set(echo = FALSE)
+
+library(openxlsx)
+library(tidyverse)
+library(ggrepel)
+library(patchwork)
+
+load("../Data/data_scenarios.R")
+data_gap <- read.xlsx('../Data/cdr_gap_data.xlsx',sheet=2,cols = 1:7) %>%
+  select(-value_mt) %>% 
+  rename(value=value_gt)
+
+ratio_current = data_gap$value[data_gap$var=="current_cdr_direct"]/data_gap$value[data_gap$var=="current_cdr_direct_and_indirect"]
+
+source("C:/Users/lamw/ownCloud/Resources/r/figure_style.R")
+
+
+```
+
+```{r figure_scenario_lulucf,fig.height=4,fig.width=10,fig.path="../Results/",dev=c('png','pdf','svg'),dpi=300}
+
+
+# wd_scenarios <- data_scenarios_cdr %>% 
+#   filter(var %in% c("emissions_co2_afolu_indirect","carbon_removal_land")) %>% 
+#   mutate(id=paste0(model,"_",scenario)) %>% 
+#   mutate(value=ifelse(var=="carbon_removal_land",-value,value))
+# 
+# wd_scenarios <- spread(wd_scenarios,var,value)
+# wd_scenarios <- wd_scenarios %>% 
+#   rename(lulucf_removals=carbon_removal_land) %>% 
+#   rename(lulucf_flux=emissions_co2_afolu_indirect)
+# wd_scenarios <- gather(wd_scenarios,var,value,lulucf_removals:lulucf_flux)
+# 
+# wd_scenarios %>% ggplot(.,aes(x=year,y=value/1e3,group=id,color=var)) +
+#   geom_path(alpha=0.2) +
+#   facet_grid(.~var) +
+#   theme_wl() +
+#   scale_color_brewer(palette="Set2") +
+#   theme(legend.position="none",
+#         axis.title = element_blank()) +
+#   labs(title="Inventory aligned LULUCF in AR6 scenarios",
+#        subtitle="GtCO2/yr")
+
+
+```
+
+
+
+```{r figures_focus_scenarios, fig.height=4,fig.width=10,fig.path="../Results/",dev=c('png','pdf','svg'),dpi=300}
+
+wd_scenarios <- data_scenarios_cdr %>% 
+  filter(year>=2015) %>% 
+  filter(!is.na(imp))
+
+## calculate gross emissions
+wd_scenarios <- spread(wd_scenarios,var,value)
+wd_scenarios <- wd_scenarios %>% 
+  mutate(emissions_gross_co2_afolu=emissions_co2_afolu_direct+carbon_removal_land_direct) %>% 
+  mutate(emissions_gross_kyoto = emissions_kyoto_gases_direct_only+carbon_removal_land_direct+carbon_removal_non_land) %>% 
+  mutate(emissions_gross_co2_other = emissions_co2_direct_only+carbon_removal_land_direct+carbon_removal_non_land)
+
+
+wd_scenarios_path <- wd_scenarios %>% select(imp,year,value=emissions_co2_direct_only)
+
+## trim and avoid double counting
+wd_scenarios <- wd_scenarios %>% 
+  mutate(emissions_gross_co2_other = emissions_gross_co2_other - emissions_gross_co2_afolu) %>% 
+  mutate(emissions_gross_non_co2 = emissions_gross_kyoto - emissions_gross_co2_afolu - emissions_gross_co2_other) %>% 
+  mutate(carbon_removal_land_direct=-carbon_removal_land_direct) %>% 
+  mutate(carbon_removal_non_land=-carbon_removal_non_land) %>% 
+  select(imp,year,emissions_gross_co2_afolu,emissions_gross_co2_other,emissions_gross_non_co2,carbon_removal_land_direct,carbon_removal_non_land)
+
+
+wd_scenarios <- gather(wd_scenarios,key,value,emissions_gross_co2_afolu:carbon_removal_non_land)
+
+wd_scenarios$key <- as.factor(wd_scenarios$key)
+wd_scenarios$key <- fct_relevel(wd_scenarios$key,"carbon_removal_non_land","carbon_removal_land_direct","emissions_gross_non_co2","emissions_gross_co2_other","emissions_gross_co2_afolu")
+wd_scenarios$imp <- as.factor(wd_scenarios$imp)
+wd_scenarios$imp <- fct_relevel(wd_scenarios$imp,"Focus on Demand Reduction","Focus on Renewables","Focus on Carbon Removals")
+
+wd_scenarios %>% ggplot(.,aes(x=year,y=value/1e3,fill=key)) +
+  geom_area() +
+  geom_hline(yintercept=0) +
+  geom_path(data=wd_scenarios_path,inherit.aes = FALSE,aes(x=year,y=value/1e3)) +
+  facet_wrap(imp~.) +
+  scale_fill_manual(values=c("#efce88ff","#e0a52bff","#ebbbddff","#a3c0d7ff","#927355ff")) + 
+  theme_wl() +
+  theme(legend.position="bottom",
+        axis.title.x=element_blank(),panel.grid = element_blank())
+
+
+```
+

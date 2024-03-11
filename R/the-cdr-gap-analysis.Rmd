@@ -1,0 +1,933 @@
+---
+title: "the-cdr-gap-analysis"
+author: "William F. Lamb"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+
+rm(list = ls())
+knitr::opts_chunk$set(echo = FALSE)
+
+library(openxlsx)
+library(tidyverse)
+library(ggrepel)
+library(patchwork)
+
+load("../Data/data_scenarios.R")
+load('C:/Users/lamw/ownCloud/Resources/data/data_edgar_v7_gwp100_ar6.RData')
+data_gap <- read.xlsx('../Data/cdr_gap_data.xlsx',sheet=2,cols = 1:7) %>%
+  select(-value_mt) %>% 
+  rename(value=value_gt)
+
+ratio_current = data_gap$value[data_gap$var=="current_cdr_direct"]/data_gap$value[data_gap$var=="current_cdr_direct_and_indirect"]
+
+source("C:/Users/lamw/ownCloud/Resources/r/figure_style.R")
+
+
+```
+
+## Prep current CDR data
+
+```{r prepare_current_cdr_data}
+
+data_current <- edgar_ghg %>% 
+  group_by(year) %>% 
+  summarise_at(vars(CH4,N2O,Fgas,CO2),sum,na.rm=T) %>% 
+  filter(year==2019) %>% 
+  mutate(`Non-CO2 GHGs`=CH4+N2O+Fgas) %>% 
+  rename(`Fossil CO2`=CO2)
+
+data_current <- gather(data_current,var,value,-year)
+data_current <- data_current %>% 
+  filter(var %in% c("Fossil CO2","Non-CO2 GHGs")) %>% 
+  mutate(value=value/1e9) %>% 
+  mutate(category=paste0("Emissions: ",var)) %>% 
+  mutate(subcategory=NA) %>% 
+  select(-var)
+
+data_current_cdr <- read.xlsx("../Data/cdr_gap_data.xlsx",sheet="current_cdr_other") %>% 
+  filter(Year.Op.<=2023) %>% 
+  group_by(Category) %>% 
+  summarise(value=sum(Provided.Size)/1e9) %>% 
+  mutate(value=-value) %>% 
+  rename(subcategory=Category) %>%
+  mutate(category="Removals: Novel CDR") %>% 
+  mutate(year=2021)
+
+data_current <- rbind(data_current,data_current_cdr)
+
+data_current_cdr <- read.xlsx("../Data/cdr_gap_data.xlsx",sheet=2)
+data_current_cdr <- data_current_cdr %>% 
+  filter(var=="current_cdr_direct") %>% 
+  rename(value=value_gt)
+
+
+## get managed land emissions from Thomas' sheet
+managed_land <- read.csv('../Data/Not public/OSCAR_GCB2021_global_for_Carter_v20221019.csv')
+managed_land <- managed_land %>% 
+  mutate(emissions=Eluc-Eluc_for_noshift) %>% 
+  mutate(emissions=emissions/1000)
+
+
+data_current <- data_current %>% 
+  add_row(year=2021,
+          category="Removals: Conventional CDR on land",
+          value=data_current_cdr$value[data_current_cdr$var=="current_cdr_direct"],
+          subcategory=NA)%>% 
+  add_row(year=2021,
+          category="Emissions: Managed land",
+          value=managed_land$emissions[managed_land$year==2019],
+          subcategory=NA)
+
+
+data_current$category <- as.factor(data_current$category)
+data_current$category <- fct_relevel(data_current$category,"Emissions: Non-CO2 GHGs")
+
+data_current <- data_current %>% 
+  select(category,subcategory,year,value) %>% 
+  arrange(category,subcategory,year)
+
+p1 <- data_current %>% ggplot(.,aes(x=2020,y=value,fill=category)) +
+  geom_bar(stat='identity',width=5,color="#636363") +
+  scale_fill_manual(values=c("#ebbbddff","#a3c0d7ff","#927355ff",
+                             "#e0a52bff","#efce88ff")) +
+  theme_wl() +
+  theme(panel.grid.major.x = element_blank(),
+        legend.position="none",
+        axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.title = element_blank()) +
+  xlim(2015,2025) +
+  labs(title=bquote(bold("Global total greenhouse gas emissions and removals")),
+       subtitle=bquote("Gt" ~CO[2]* "e"))
+  
+
+p2 <- data_current %>% 
+  filter(grepl("Removals",category)) %>% 
+  ggplot(.,aes(x=2020,y=value,fill=category)) +
+  geom_bar(stat='identity',width=5,color="#636363") +
+  scale_fill_manual(values=c("#ebbbddff","#a3c0d7ff","#927355ff",
+                             "#e0a52bff","#efce88ff"),drop=FALSE) +
+  theme_wl() +
+  theme(panel.grid.major.x = element_blank(),
+        legend.position="none",
+        axis.title = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        plot.background = element_blank(),
+        plot.margin = unit(c(0,0,0,1.25),"cm")) +
+  xlim(2015,2025)
+
+p3 <- data_current %>% 
+  filter(category=="Removals: Novel CDR") %>% 
+  ggplot(.,aes(x=2020,y=value,fill=category)) +
+  geom_bar(stat='identity',width=5,color="#636363") +
+  scale_fill_manual(values=c("#ebbbddff","#a3c0d7ff","#927355ff",
+                             "#e0a52bff","#efce88ff"),drop=FALSE) +
+  theme_wl() +
+  theme(panel.grid.major.x = element_blank(),
+        axis.title = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        plot.background = element_blank(),
+        plot.margin = unit(c(0,0,0,1.25),"cm"),
+        legend.title=element_blank()) +
+  xlim(2015,2025)
+
+```
+
+```{r figure_current_cdr, fig.width=7, fig.height=3.5, dpi=400, fig.path="../Results/", dev=c('png','pdf','svg')}
+
+wb_current <- createWorkbook(title = paste("the-cdr-gap-figure-2-data"))
+
+addWorksheet(wb_current,"data")
+writeData(wb_current, sheet = "data", data_current, colNames = T, rowNames = F)
+
+p1 + p2 + p3
+
+```
+
+## Prep scenario data
+
+```{r prepare_scenario_data, fig.width=9,fig.height=4}
+
+
+# data_scenarios_cdr_source <- read.csv('../Data/Not public/gidden_et_al_2022_ar6_reanalysis_data.csv')
+# 
+# ## clean things up
+# 
+# data_scenarios_cdr <- gather(data_scenarios_cdr_source,year,value,X1990:X2100)
+# data_scenarios_cdr$year <- gsub("X","",data_scenarios_cdr$year)
+# data_scenarios_cdr <- data_scenarios_cdr %>%
+#   select(model=Model,scenario=Scenario,region=Region,var=Variable,year,value)
+# data_scenarios_cdr <- data_scenarios_cdr %>%
+#   mutate(year=as.numeric(year))
+# 
+# 
+# ## join the scenario categories
+# 
+# scenario_categories <- read.csv('../Data/Not public/scenario_categories.csv')
+# data_scenarios_cdr <- left_join(data_scenarios_cdr,scenario_categories %>% select(model,scenario,cat=Category),by = c("model", "scenario"))
+# 
+# ## filter to C1-C3 scenarios
+# data_scenarios_cdr <- data_scenarios_cdr %>%
+#   filter(cat %in% c("C1","C2","C3"))
+# 
+# 
+# ## remove a couple of scenarios following email from Thomas
+# data_scenarios_cdr <- data_scenarios_cdr %>%
+#   filter(model!="AIM/Hub-Global 2.0")
+# 
+# 
+# ## rename vars
+# data_scenarios_cdr$var <- gsub("\\|","_",data_scenarios_cdr$var)
+# data_scenarios_cdr$var <- gsub(" - ","_",data_scenarios_cdr$var)
+# data_scenarios_cdr$var <- gsub("-","_",data_scenarios_cdr$var)
+# data_scenarios_cdr$var <- gsub(" ","_",data_scenarios_cdr$var)
+# data_scenarios_cdr$var <- tolower(data_scenarios_cdr$var)
+# data_scenarios_cdr$var <- gsub("ar6_reanalysis_oscarv3.2_","",data_scenarios_cdr$var)
+# 
+# 
+# ## IMPs
+# 
+# imps <- data.frame(imp=c("Focus on Demand Reduction","Focus on Renewables","Focus on Carbon Removals"),
+#                    scenario=c("LowEnergyDemand_1.3_IPCC",
+#                               "SusDev_SDP-PkBudg1000",
+#                               "SSP1_SPA1_19I_RE_LB"),
+#                    model=c("MESSAGEix-GLOBIOM 1.0",
+#                            "REMIND-MAgPIE 2.1-4.2",
+#                            "IMAGE 3.2"))
+# 
+# data_scenarios_cdr <- left_join(data_scenarios_cdr,imps,by=c("scenario","model"))
+# 
+# 
+# ## calculate total CDR (direct) and fill non-land CDR NaNs with 0s
+# data_scenarios_cdr <- spread(data_scenarios_cdr,var,value)
+# data_scenarios_cdr <- data_scenarios_cdr %>%
+#   mutate(carbon_removal_non_land=ifelse(is.na(carbon_removal_non_land),0,carbon_removal_non_land)) %>%
+#   mutate(carbon_removal_total_direct=carbon_removal_land_direct+carbon_removal_non_land)
+# data_scenarios_cdr <- gather(data_scenarios_cdr,var,value,carbon_removal:carbon_removal_total_direct)
+# 
+# data_scenarios_cdr <- data_scenarios_cdr %>%
+#   filter(region=="World") %>%
+#   select(-region)
+
+
+# save(data_scenarios_cdr,file="../Data/data_scenarios.R")
+
+
+```
+
+## Analysis
+### What are the gross emissions reductions from 2020-2030/2050 in C1,C3 scenarios?
+
+```{r scenario_gross_reductions_2020_2050}
+
+wd_scenarios <- data_scenarios_cdr %>% 
+  filter(var %in% c("emissions_co2","emissions_co2_afolu","emissions_kyoto_gases","carbon_removal_land_direct","carbon_removal_non_land","carbon_removal_total_direct")) %>% 
+  filter(year>=2020)
+
+wd_scenarios <- spread(wd_scenarios,var,value) %>% 
+  mutate(emissions_ghg_gross=emissions_kyoto_gases+carbon_removal_total_direct) %>% 
+  filter(cat %in% c("C1","C3"))
+
+
+## summary stats
+
+wd_scenarios_2030 <- gather(wd_scenarios,var,value,carbon_removal_land_direct:emissions_ghg_gross) %>% 
+  filter(year %in% c(2020,2030)) %>% 
+  filter(var %in% c("emissions_ghg_gross")) %>%
+  group_by(model,scenario,cat,imp) %>% 
+  summarise(emissions_change_abs=first(value)-last(value),
+            emissions_change_rel=emissions_change_abs/first(value)) %>% 
+  mutate(emissions_change_rel=emissions_change_rel*100) %>% 
+  mutate(year=2030)
+
+
+wd_scenarios_2030 <- wd_scenarios_2030 %>% 
+  group_by(year) %>% 
+  summarise(median=signif(median(emissions_change_rel),2),
+            percentile_5th = signif(quantile(emissions_change_rel, probs = c(0.05)),2),
+            percentile_95th = signif(quantile(emissions_change_rel, probs = c(0.95)),2))
+
+wd_scenarios_2050 <- gather(wd_scenarios,var,value,carbon_removal_land_direct:emissions_ghg_gross) %>% 
+  filter(year %in% c(2020,2050)) %>% 
+  filter(var %in% c("emissions_ghg_gross")) %>%
+  group_by(model,scenario,cat,imp) %>% 
+  summarise(emissions_change_abs=first(value)-last(value),
+            emissions_change_rel=emissions_change_abs/first(value)) %>% 
+  mutate(emissions_change_rel=emissions_change_rel*100) %>% 
+  mutate(year=2050)
+
+
+wd_scenarios_2050 <- wd_scenarios_2050 %>% 
+  group_by(year) %>% 
+  summarise(median=signif(median(emissions_change_rel),2),
+            percentile_5th = signif(quantile(emissions_change_rel, probs = c(0.05)),2),
+            percentile_95th = signif(quantile(emissions_change_rel, probs = c(0.95)),2))
+
+
+wd_scenarios <- rbind(wd_scenarios_2030,wd_scenarios_2050)
+```
+### What are the gross emissions reductions from 2020-2030/2050 in the focus scenarios?
+
+```{r focus_gross_reductions_2020_2050}
+
+wd_scenarios <- data_scenarios_cdr %>% 
+  filter(var %in% c("emissions_kyoto_gases","carbon_removal_total_direct")) %>% 
+  filter(year>=2020) %>% 
+  filter(!is.na(imp))
+
+wd_scenarios <- spread(wd_scenarios,var,value) %>% 
+  mutate(emissions_ghg_gross=emissions_kyoto_gases+carbon_removal_total_direct) %>% 
+  filter(cat %in% c("C1","C3"))
+
+
+## summary stats
+
+wd_scenarios_2030 <- gather(wd_scenarios,var,value,carbon_removal_total_direct:emissions_ghg_gross) %>% 
+  filter(year %in% c(2020,2030)) %>% 
+  filter(var %in% c("emissions_ghg_gross")) %>%
+  group_by(imp) %>% 
+  summarise(emissions_change_abs=first(value)-last(value),
+            emissions_change_rel=emissions_change_abs/first(value)) %>% 
+  mutate(emissions_change_rel=emissions_change_rel*100) %>% 
+  mutate(year=2030)
+
+
+wd_scenarios_2050 <- gather(wd_scenarios,var,value,carbon_removal_total_direct:emissions_ghg_gross) %>% 
+  filter(year %in% c(2020,2050)) %>% 
+  filter(var %in% c("emissions_ghg_gross")) %>%
+  group_by(imp) %>% 
+  summarise(emissions_change_abs=first(value)-last(value),
+            emissions_change_rel=emissions_change_abs/first(value)) %>% 
+  mutate(emissions_change_rel=emissions_change_rel*100) %>% 
+  mutate(year=2050)
+
+
+wd_scenarios <- rbind(wd_scenarios_2030,wd_scenarios_2050)
+wd_scenarios <- wd_scenarios %>% 
+  mutate(emissions_change_rel=signif(emissions_change_rel,2))
+
+```
+
+```{r extra_imps}
+
+## for the manuscript data file, so that people can choose their own
+
+wd_scenarios_extra_imps <- data_scenarios_cdr %>% 
+  filter(var %in% c("emissions_co2","emissions_co2_afolu","emissions_kyoto_gases","carbon_removal_land_direct","carbon_removal_non_land","carbon_removal_total_direct")) %>% 
+  filter(year>=2020)
+
+wd_scenarios_extra_imps <- spread(wd_scenarios_extra_imps,var,value) %>% 
+  mutate(emissions_ghg_gross=emissions_kyoto_gases+carbon_removal_total_direct) %>% 
+  filter(cat %in% c("C1","C2","C3"))
+
+## emissions and CDR in 2020, 2030 and 2050
+wd_scenarios_extra_imps <- wd_scenarios_extra_imps %>% 
+  select(model,scenario,year,cat,carbon_removal_land_direct,carbon_removal_non_land,emissions_ghg_gross)
+
+wd_scenarios_extra_imps <- gather(wd_scenarios_extra_imps,var,value,carbon_removal_land_direct:emissions_ghg_gross)
+
+wd_scenarios_extra_imps <- wd_scenarios_extra_imps %>% 
+  mutate(value=value/1000) %>% 
+  arrange(model,scenario,year)
+
+wd_scenarios_extra_imps <- spread(wd_scenarios_extra_imps,var,value)
+```
+
+
+### What is the cumulative CDR by 2100, split by technology?
+
+```{r cdr_cumulative_tech}
+
+wd_scenarios <- data_scenarios_cdr %>% 
+  filter(year>=2010) %>% 
+  filter(var %in% c("carbon_removal_land_direct","carbon_removal_non_land","carbon_removal_total_direct")) %>% 
+  filter(cat %in% c("C1","C3"))
+
+wd_scenarios <- spread(wd_scenarios,var,value) %>% 
+  group_by(model,scenario,cat) %>% 
+  summarise(carbon_removal_total_direct=sum(carbon_removal_total_direct),
+            carbon_removal_land_direct=sum(carbon_removal_land_direct),
+            carbon_removal_non_land=sum(carbon_removal_non_land))
+
+wd_scenarios <- gather(wd_scenarios,var,value,carbon_removal_total_direct:carbon_removal_non_land) %>% 
+  mutate(value=value/1000) %>% 
+  group_by(var) %>% 
+  summarise(median=signif(median(value),2),
+            percentile_5th = signif(quantile(value, probs = c(0.05)),2),
+            percentile_95th = signif(quantile(value, probs = c(0.95)),2))
+
+
+```
+
+### What is the cumulative CDR by 2100, split by technology and focus scenario?
+
+```{r cdr_cumulative_focus}
+
+wd_scenarios <- data_scenarios_cdr %>% 
+  filter(year>=2010) %>% 
+  filter(var %in% c("carbon_removal_land_direct","carbon_removal_non_land","carbon_removal_total_direct")) %>% 
+  filter(!is.na(imp))
+
+wd_scenarios <- spread(wd_scenarios,var,value) %>% 
+  group_by(imp) %>% 
+  summarise(carbon_removal_total_direct=sum(carbon_removal_total_direct),
+            carbon_removal_land_direct=sum(carbon_removal_land_direct),
+            carbon_removal_non_land=sum(carbon_removal_non_land))
+
+wd_scenarios <- gather(wd_scenarios,var,value,carbon_removal_total_direct:carbon_removal_non_land) %>% 
+  mutate(value=value/1000)
+
+```
+
+## What is the change in total CDR from 2020 to 2030 and 2050?
+
+```{r total_cdr_change_2020_2030_2050}
+
+wd_scenarios <- data_scenarios_cdr %>% 
+  filter(cat %in% c("C1","C3")) %>% 
+  filter(year%in% c(2020,2030)) %>% 
+  filter(var %in% c("carbon_removal_total_direct")) %>% 
+  group_by(model,scenario,cat) %>% 
+  summarise(cdr_total_change=last(value)-first(value)) %>% 
+  mutate(year=2030)
+
+wd_scenarios <- rbind(wd_scenarios, data_scenarios_cdr %>% 
+                        filter(cat %in% c("C1","C3")) %>% 
+                        filter(year%in% c(2020,2050)) %>% 
+                        filter(var %in% c("carbon_removal_total_direct")) %>% 
+                        group_by(model,scenario,cat) %>% 
+                        summarise(cdr_total_change=last(value)-first(value)) %>% 
+                        mutate(year=2050))
+
+wd_scenarios <- wd_scenarios %>% 
+  mutate(cdr_total_change=cdr_total_change/1000) %>% 
+  group_by(year,cat) %>% 
+  summarise(median=signif(median(cdr_total_change),2),
+            percentile_5th = signif(quantile(cdr_total_change, probs = c(0.05)),2),
+            percentile_95th = signif(quantile(cdr_total_change, probs = c(0.95)),2))
+
+
+```
+
+### Table 2 differences
+
+```{r additional_cdr_table}
+
+
+wd_table_2030 <- data_scenarios_cdr %>% 
+  filter(year %in% c(2020,2030)) %>% 
+  filter(cat %in% c("C1","C3")) %>% 
+  filter(var %in% c("carbon_removal_total_direct","carbon_removal_land_direct","carbon_removal_non_land")) %>% 
+  mutate(value=value/1000) %>% 
+  group_by(model,scenario,cat,var) %>% 
+  summarise(additional_cdr_2030=last(value)-first(value)) %>% 
+  mutate(additional_cdr_2030=-additional_cdr_2030)
+
+wd_table_2030 <- wd_table_2030 %>% 
+  group_by(var) %>%
+  summarise(value=paste0(signif(median(additional_cdr_2030),2)," [",
+            signif(quantile(additional_cdr_2030, probs = c(0.05)),2)," - ",
+            signif(quantile(additional_cdr_2030, probs = c(0.95)),2),"]")) %>% 
+  mutate(year=2030)
+
+
+wd_table_2050 <- data_scenarios_cdr %>% 
+  filter(year %in% c(2020,2050)) %>% 
+  filter(cat %in% c("C1","C3")) %>% 
+  filter(var %in% c("carbon_removal_total_direct","carbon_removal_land_direct","carbon_removal_non_land")) %>% 
+  mutate(value=value/1000) %>% 
+  group_by(model,scenario,cat,var) %>% 
+  summarise(additional_cdr_2030=last(value)-first(value)) %>% 
+  mutate(additional_cdr_2030=-additional_cdr_2030)
+
+wd_table_2050 <- wd_table_2050 %>% 
+  group_by(var) %>%
+  summarise(value=paste0(signif(median(additional_cdr_2030),2)," [",
+            signif(quantile(additional_cdr_2030, probs = c(0.05)),2)," - ",
+            signif(quantile(additional_cdr_2030, probs = c(0.95)),2),"]")) %>% 
+  mutate(year=2050)
+  
+
+wd_table <- rbind(wd_table_2030,wd_table_2050)
+wd_table <- spread(wd_table,var,value)
+rm(wd_table_2030,wd_table_2050)
+
+wd_table <- wd_table %>% 
+  select(year,carbon_removal_total_direct,everything())
+
+
+```
+
+
+```{r prepare_cdr_gap_data,fig.width=8,fig.height=4}
+
+## calculate reduction rates for the focus scenarios
+reduction_rates <- spread(data_scenarios_cdr,var,value) %>%
+  filter(year %in% c(2020,2030)) %>%
+  mutate(emissions_ghg_gross=emissions_kyoto_gases+carbon_removal_total_direct) %>% 
+  group_by(imp) %>% 
+  summarise(reduction=1-(last(emissions_ghg_gross)/first(emissions_ghg_gross))) %>% 
+  mutate(reduction=signif(reduction*100,2))
+
+
+## calculate median and interquartile ranges for C1-C3
+
+wd_scenarios_intq_range <- data_scenarios_cdr %>% 
+  filter(cat %in% c("C1","C3")) %>% 
+  filter(var %in% c("carbon_removal_total_direct","carbon_removal_land_direct","carbon_removal_non_land")) %>% 
+  filter(year>=2020) %>% 
+  filter(year<=2050) %>%
+  mutate(value=value/1000) %>% 
+  mutate(value=-value) %>% 
+  group_by(year,var) %>%
+  summarise(median=median(value),
+            percentile_5th = quantile(value, probs = c(0.05)),
+            percentile_95th = quantile(value, probs = c(0.95)),
+            percentile_25th = quantile(value, probs = c(0.25)),
+            percentile_75th = quantile(value, probs = c(0.75)),
+            max=max(value),
+            min=min(value))
+
+
+## imp data
+
+wd_scenarios_gap <- data_scenarios_cdr %>% 
+  filter(var %in% c("carbon_removal_total_direct","carbon_removal_land_direct","carbon_removal_non_land")) %>% 
+  filter(year>=2020) %>% 
+  filter(!is.na(imp)) %>% 
+  mutate(value=value/1000) %>% 
+  mutate(value=-value)
+
+## historical data
+wd_current <- data.frame(year=c(2010:2020),value=data_gap$value[data_gap$var=="current_cdr_direct" & data_gap$type=="lulucf"], imp="current")
+wd_current <- wd_current %>% 
+  mutate(min=-4.094452) %>% 
+  mutate(max=-1.926142)
+
+
+labels <- wd_scenarios_gap %>% 
+  filter(year==2050) %>% 
+  filter(var=="carbon_removal_total_direct") %>% 
+  group_by(model,scenario,year,cat,imp) %>% 
+  summarise(value=sum(value)) %>% 
+  ungroup() %>% 
+  mutate(value=ifelse(model=="MESSAGEix-GLOBIOM 1.0",value+1,value)) %>% 
+  mutate(value=ifelse(model=="REMIND-MAgPIE 2.1-4.2",value+1,value))
+
+labels <- left_join(labels,reduction_rates,by="imp")
+labels <- labels %>% 
+  mutate(label=paste0("[",reduction,"% GHG reduction by 2030]"))
+
+
+
+p1 <- wd_scenarios_gap %>% 
+  filter(year<=2050) %>% 
+  filter(year>=2010) %>% 
+  filter(var=="carbon_removal_total_direct") %>% 
+  ggplot(.,aes(x=year,y=value,group=imp)) +
+  
+  geom_ribbon(data=wd_scenarios_intq_range %>% filter(var=="carbon_removal_total_direct"),inherit.aes=FALSE,aes(x=year,ymin=percentile_5th,ymax=percentile_95th),fill="#fc8d62",alpha=0.1) +
+  geom_ribbon(data=wd_scenarios_intq_range %>% filter(var=="carbon_removal_total_direct"),inherit.aes=FALSE,aes(x=year,ymin=percentile_25th,ymax=percentile_75th),fill="#fc8d62",alpha=0.1) +
+  geom_path(color="#fc8d62") +
+  
+  geom_ribbon(data=wd_current,inherit.aes=FALSE,aes(x=year,ymin=min,ymax=max),fill="#8da0cb",alpha=0.1) +
+  geom_path(data=wd_current,color="#8da0cb") +
+  
+  annotate("text",x=2015,y=-3.5,label="Current CDR",color="#8da0cb") +
+  annotate("text",x=2040,y=-3,label=str_wrap("CDR in Paris-relevant scenarios",30),color="#fc8d62") +
+  
+  geom_vline(aes(xintercept=2020)) +
+  geom_vline(aes(xintercept=2030)) +
+  geom_vline(aes(xintercept=2050)) +
+  geom_text(data=labels,aes(x=2051,y=value,label=str_wrap(imp,15),color="#fc8d62"),hjust=0,lineheight = 0.8) +
+  geom_text(data=labels,aes(x=2051,y=value-1.2,label=str_wrap(label,45),color="#fc8d62"),hjust=0,size=3) +
+  ylab("Conventional and novel CDR (GtCO2)") +
+  ggtitle("The extent of future carbon dioxide removal depends on the scenario by which climate goals are met") +
+  scale_x_continuous(breaks=c(2010,2020,2030,2040,2050),limits = c(2010,2065)) +
+  scale_y_continuous(breaks=c(0,-4,-8,-12),limits=c(-15,0),minor_breaks = c(-2,-6,-10,-14)) + 
+  theme_bw() +
+  theme(legend.position="none",
+        axis.text.x = element_text(angle=45,hjust=1),
+        axis.title.x=element_blank(),
+        title =element_text(size=10))
+
+
+p1
+
+
+wb <- createWorkbook(title = paste("figure_data_cdr_gap"))
+
+addWorksheet(wb,"panel_a_current")
+addWorksheet(wb,"panel_a_scenario_range")
+addWorksheet(wb,"panel_a_imp_pathways")
+
+writeData(wb, sheet = "panel_a_current", wd_current %>% select(-imp), colNames = T, rowNames = F)
+writeData(wb, sheet = "panel_a_scenario_range", wd_scenarios_intq_range %>% filter(var=="carbon_removal_total_direct"), colNames = T, rowNames = F)
+writeData(wb, sheet = "panel_a_imp_pathways", wd_scenarios_gap %>%
+  #filter(year<=2050) %>%
+  filter(year>=2010) %>%
+  filter(var!="carbon_removal_total_direct") %>%
+  group_by(year,imp) %>%
+  summarise(value=sum(value)), colNames = T, rowNames = F)
+
+```
+
+
+```{r prepare_cdr_gap_data_2,fig.width=8,fig.height=5}
+
+wd_gap_figure <- wd_scenarios_gap %>% 
+  filter(year %in% c(2020,2030,2050)) %>% 
+  mutate(figure_category="Scenario CDR") %>% 
+  filter(var!="carbon_removal_total_direct")
+
+## join current
+wd_gap_figure <- rbind(wd_gap_figure,
+                            data.frame(model=c(NA,NA),
+                                       scenario=c(NA,NA),
+                                       year=c(2020,2020),
+                                       cat=c(NA,NA),
+                                       figure_category=c("Current CDR","Current CDR"),
+                                       imp=c("Current CDR","Current CDR"),
+                                       var=c("carbon_removal_land_direct","carbon_removal_non_land"),
+                                       value=c(data_gap$value[data_gap$var=="current_cdr_direct" & data_gap$type=="lulucf"],
+                                               data_gap$value[data_gap$var=="current_cdr" & data_gap$type=="other"])))
+
+## join NDCs
+wd_gap_figure <- rbind(wd_gap_figure,
+                            data.frame(model=c(NA,NA,NA,NA),
+                                       scenario=c(NA,NA,NA,NA),
+                                       year=c(2030,2030,2030,2030),
+                                       cat=c(NA,NA,NA,NA),
+                                       figure_category=c("Planned CDR","Planned CDR","Planned CDR","Planned CDR"),
+                                       imp=c("NDCs (conditional)","NDCs (conditional)","NDCs (unconditional)","NDCs (unconditional)"),
+                                       var=c("carbon_removal_land_direct","carbon_removal_non_land","carbon_removal_land_direct","carbon_removal_non_land"),
+                                       value=c(data_gap$value[data_gap$var=="planned_cdr_ndcs_conditional"],
+                                               0,
+                                               data_gap$value[data_gap$var=="planned_cdr_ndcs_unconditional"],
+                                               0)))
+
+
+## join LT-LEDS
+wd_gap_figure <- rbind(wd_gap_figure,
+                            data.frame(model=c(NA,NA,NA,NA),
+                                       scenario=c(NA,NA,NA,NA),
+                                       year=c(2050,2050,2050,2050),
+                                       cat=c(NA,NA,NA,NA),
+                                       figure_category=c("Planned CDR","Planned CDR","Planned CDR","Planned CDR"),
+                                       imp=c("Long-term strategies (low)","Long-term strategies (low)","Long-term strategies (high)","Long-term strategies (high)"),
+                                       var=c("carbon_removal_land_direct","carbon_removal_non_land","carbon_removal_land_direct","carbon_removal_non_land"),
+                                       value=c(data_gap$value[data_gap$var=="planned_cdr_ltleds_lower" & data_gap$type=="lulucf"],
+                                               data_gap$value[data_gap$var=="planned_cdr_ltleds_lower" & data_gap$type=="other"],
+                                               data_gap$value[data_gap$var=="planned_cdr_ltleds_upper" & data_gap$type=="lulucf"],
+                                               data_gap$value[data_gap$var=="planned_cdr_ltleds_upper" & data_gap$type=="other"])))
+
+
+## calculate scale up factors for each
+wd_gap_figure <- wd_gap_figure %>% 
+  mutate(value=ifelse(var=="carbon_removal_non_land" & figure_category=="Scenario CDR" & year==2020,data_gap$value[data_gap$var=="current_cdr" & data_gap$type=="other"],value))
+
+wd_gap_figure <- wd_gap_figure %>% 
+  group_by(model,scenario,cat,imp,var,figure_category) %>% 
+  mutate(factor=value/first(value)) %>% 
+  mutate(factor=ifelse(imp=="NDCs (conditional)" & var=="carbon_removal_land_direct",value/data_gap$value[data_gap$var=="current_cdr_direct"],factor)) %>% 
+  mutate(factor=ifelse(imp=="NDCs (unconditional)" & var=="carbon_removal_land_direct",value/data_gap$value[data_gap$var=="current_cdr_direct"],factor)) %>% 
+  mutate(factor=ifelse(imp=="Long-term strategies (low)" & var=="carbon_removal_land_direct",value/data_gap$value[data_gap$var=="current_cdr_direct"],factor)) %>% 
+  mutate(factor=ifelse(imp=="Long-term strategies (high)" & var=="carbon_removal_land_direct",value/data_gap$value[data_gap$var=="current_cdr_direct"],factor)) %>% 
+  mutate(factor=ifelse(imp=="Long-term strategies (low)" & var=="carbon_removal_non_land",value/data_gap$value[data_gap$var=="current_cdr" & data_gap$type=="other"],factor)) %>% 
+  mutate(factor=ifelse(imp=="Long-term strategies (high)" & var=="carbon_removal_non_land",value/data_gap$value[data_gap$var=="current_cdr" & data_gap$type=="other"],factor)) %>% 
+  mutate(factor=signif(factor,2)) %>% 
+  mutate(value=ifelse(imp!= "Current CDR" & year==2020,NA,value))
+  
+
+
+wd_gap_figure$imp <- as.factor(wd_gap_figure$imp)
+wd_gap_figure$imp <- fct_relevel(wd_gap_figure$imp,"NDCs (unconditional)","NDCs (conditional)","Long-term strategies (low)","Long-term strategies (high)","Focus on Demand Reduction","Focus on Carbon Removals","Focus on Renewables")
+
+
+p2 <- wd_gap_figure %>% 
+  filter(!is.na(value)) %>% 
+  mutate(var=ifelse(var=="carbon_removal_non_land","Novel CDR","Conventional CDR on land")) %>% 
+  ggplot(.,aes(x=imp,y=value,fill=figure_category)) +
+  geom_bar(stat='identity',color="#636363") +
+  geom_hline(data=data.frame(var=c("Novel CDR","Conventional CDR on land"),y=c(NA,-2.458)),aes(yintercept=y),linetype="dashed") +
+  facet_grid(var~year,scales="free_x",space="free_x",labeller = label_wrap_gen(15)) +
+  scale_fill_manual(values=c("#8da0cb","#66c2a5","#fc8d62")) +
+  theme_bw() +
+  theme(legend.position="none",
+        axis.text.x = element_text(angle=45,hjust=1),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        strip.text.y = element_text(margin = margin(0,0.5,0,0.5, "cm")),
+        title =element_text(size=10)) +
+  ggtitle(str_wrap("Current and proposed levels of carbon dioxide removal are insufficient to meet the Paris temperature goal",120))
+
+p2
+
+
+
+addWorksheet(wb,"panel_b_bar_plots")
+
+writeData(wb, sheet = "panel_b_bar_plots", wd_gap_figure %>% 
+            mutate(var=ifelse(var=="carbon_removal_non_land","Novel CDR",var)) %>% 
+            mutate(var=ifelse(var=="cdr_forest_NGHGI","Conventional CDR on land",var)),colNames = T, rowNames = F)
+
+
+```
+
+
+``` {r figure_cdr_gap,fig.width=9,fig.height=8,fig.path="../Results/",dev=c('png','pdf','svg'),dpi=300}
+
+p1 / p2
+
+
+addWorksheet(wb,"additional_scenario_data")
+writeData(wb, sheet= "additional_scenario_data",wd_scenarios_extra_imps,colNames=T)
+
+
+saveWorkbook(wb,paste0("../Results/the-cdr-gap-figure-4-data.xlsx"),overwrite=T)
+saveWorkbook(wb_current,paste0("../Results/the-cdr-gap-figure-2-data.xlsx"),overwrite=T)
+
+
+```
+
+```{r c1_c3_additional_removals,fig.width=10,fig.height=4.5}
+
+additional_removals_imps <- wd_scenarios_gap %>%
+  filter(year %in% c(2020,2050)) %>%
+  mutate(value=value/1000) %>% 
+  mutate(value=-value) %>% 
+  group_by(imp,var) %>%
+  summarise(diff=last(value)-first(value)) %>% 
+  mutate(diff=signif(diff,2))
+
+
+additional_removals <- data_scenarios_cdr %>% 
+  filter(var %in% c("carbon_removal_non_land","carbon_removal_land_direct")) %>% 
+  filter(year %in% c(2020,2030)) %>%
+  mutate(value=value/1000) %>% 
+  mutate(value=-value) %>% 
+  mutate(value=ifelse(var=="carbon_removal_non_land" & year==2020,-0.002,value)) %>% 
+  group_by(model,scenario,var) %>%
+  summarise(diff_abs=last(value)-first(value),
+            diff_rel=last(value)/first(value)) %>% 
+  group_by(var) %>%
+  summarise(abs_median=median(diff_abs),
+            abs_percentile_5th = quantile(diff_abs, probs = c(0.05)),
+            abs_percentile_95th = quantile(diff_abs, probs = c(0.95)),
+            rel_median=median(diff_rel),
+            rel_percentile_5th = quantile(diff_rel, probs = c(0.05)),
+            rel_percentile_95th = quantile(diff_rel, probs = c(0.95))) %>% 
+  mutate(years="2020 to 2030")
+
+ranges <- additional_removals
+
+additional_removals <- data_scenarios_cdr %>% 
+  filter(var %in% c("carbon_removal_non_land","carbon_removal_land_direct")) %>% 
+  filter(year %in% c(2020,2050)) %>%
+  mutate(value=value/1000) %>% 
+  mutate(value=-value) %>% 
+  mutate(value=ifelse(var=="carbon_removal_non_land" & year==2020,-0.002,value)) %>% 
+  group_by(model,scenario,var) %>%
+  summarise(diff_abs=last(value)-first(value),
+            diff_rel=last(value)/first(value)) %>% 
+  group_by(var) %>%
+  summarise(abs_median=median(diff_abs),
+            abs_percentile_5th = quantile(diff_abs, probs = c(0.05)),
+            abs_percentile_95th = quantile(diff_abs, probs = c(0.95)),
+            rel_median=median(diff_rel),
+            rel_percentile_5th = quantile(diff_rel, probs = c(0.05)),
+            rel_percentile_95th = quantile(diff_rel, probs = c(0.95))) %>% 
+  mutate(years="2020 to 2050")
+
+
+ranges <- rbind(ranges,additional_removals)
+ranges <- gather(ranges,variable,value,-var,-years)
+ranges <- ranges %>% 
+  mutate(value=signif(value,2))
+ranges <- spread(ranges,variable,value)
+
+ranges <- ranges %>% 
+  mutate(year=ifelse(grepl(2030,years),2030,2050)) %>% 
+  mutate(factor=paste0(rel_median," [",rel_percentile_5th,"-",rel_percentile_95th,"]"))
+
+
+addWorksheet(wb,"panel_b_scenario_ranges")
+writeData(wb, sheet = "panel_b_scenario_ranges", ranges %>% 
+            select(year,var,median=abs_median,percentile_5th=abs_percentile_5th,percentile_95th=abs_percentile_95th),
+          colNames = T, rowNames = F)
+
+
+```
+
+```{r display_ranges,fig.width=12,fig.height=6.5}
+
+## reproduce the bars as in previous version
+
+p_bars_2030 <- wd_gap_figure %>% 
+  filter(!is.na(value)) %>% 
+  filter(year %in% c(2020,2030)) %>% 
+  mutate(var=ifelse(var=="carbon_removal_non_land","Novel CDR","Conventional CDR on land")) %>% 
+  ggplot(.,aes(x=imp,y=value,fill=figure_category)) +
+  geom_bar(stat='identity',color="#636363") +
+  geom_hline(data=data.frame(var=c("Novel CDR","Conventional CDR on land"),y=c(NA,-2.458)),aes(yintercept=y),linetype="dashed") +
+  facet_grid(var~year,scales="free_x",space="free_x",labeller = label_wrap_gen(15)) +
+  scale_fill_manual(values=c("#8da0cb","#66c2a5","#fc8d62")) +
+  theme_bw() +
+  ylim(-10,0) +
+  theme(legend.position="none",
+        #axis.text.x = element_text(angle=45,hjust=1),
+        axis.ticks = element_blank(),
+        axis.text.x = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        strip.text.y = element_blank(),
+        title =element_text(size=10),
+        strip.background.y = element_blank()) +
+  ggtitle(str_wrap("Current and proposed levels of carbon dioxide removal are insufficient to meet the Paris temperature goal",120))
+
+p_bars_2050 <- wd_gap_figure %>% 
+  filter(!is.na(value)) %>% 
+  filter(year %in% c(2050)) %>% 
+  mutate(var=ifelse(var=="carbon_removal_non_land","Novel CDR","Conventional CDR on land")) %>% 
+  ggplot(.,aes(x=imp,y=value,fill=figure_category)) +
+  geom_bar(stat='identity',color="#636363") +
+  geom_hline(data=data.frame(var=c("Novel CDR","Conventional CDR on land"),y=c(NA,-2.458)),aes(yintercept=y),linetype="dashed") +
+  facet_grid(var~year,scales="free_x",space="free_x",labeller = label_wrap_gen(15)) +
+  scale_fill_manual(values=c("#66c2a5","#fc8d62")) +
+  theme_bw() +
+  ylim(-10,0) +
+  theme(legend.position="none",
+        #axis.text.x = element_text(angle=45,hjust=1),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        strip.text.y = element_blank(),
+        title =element_text(size=10),
+        strip.background.y = element_blank(),
+        plot.background = element_blank())
+
+
+## produce bars for the overall scenario ranges
+
+
+wd_gap_figure_scenario_ranges <- data_scenarios_cdr %>%
+  filter(cat %in% c("C1","C3")) %>% 
+  filter(var %in% c("carbon_removal_land_direct","carbon_removal_non_land")) %>% 
+  filter(year %in% c(2030,2050)) %>% 
+  mutate(value=value/1000) %>% 
+  mutate(value=-value) %>% 
+  group_by(year,var) %>% 
+  mutate(percentile_5th = quantile(value, probs = c(0.05)),
+         percentile_95th = quantile(value, probs = c(0.95)),
+         percentile_25th = quantile(value, probs = c(0.25)),
+         percentile_75th = quantile(value, probs = c(0.75)),
+         median=median(value)) %>% 
+  mutate(remove=ifelse(value<percentile_95th,1,0)) %>% 
+  mutate(remove=ifelse(value>percentile_5th,1,0)) %>% 
+  mutate(var=ifelse(var=="carbon_removal_non_land","Novel CDR","Conventional CDR on land"))
+
+data = wd_gap_figure_scenario_ranges %>%
+  ungroup() %>%
+  select(var,year,percentile_5th,percentile_95th,median,percentile_25th,percentile_75th) %>%
+  distinct()
+data <- rbind(data %>% mutate(x=-Inf),data %>% mutate(x=Inf))
+data <- data %>% 
+  mutate(percentile_95th=ifelse(percentile_95th>0,0,percentile_95th))
+
+p_scenario_range <- data %>%
+  ggplot(.) +
+  #geom_hline(data=data_scenario_ranges %>% filter(remove==1),aes(yintercept=value),color="#fc8d62",alpha=0.1) +
+  geom_hline(aes(yintercept=median),color="#fc8d62") +
+  
+  geom_ribbon(aes(x = x,ymin=percentile_5th,ymax=percentile_95th),fill = "#fc8d62",alpha = 0.25) +
+  geom_ribbon(aes(x = x,ymin=percentile_25th,ymax=percentile_75th),fill = "#fc8d62",alpha = 0.25) +
+  
+  geom_point(aes(x=0.5,y=median),color="#fc8d62") +
+  
+  facet_grid(var ~ year,labeller = label_wrap_gen(15)) +
+  scale_x_continuous(breaks = 0.5,labels = str_wrap("Scenario range & median",20)) +
+  theme_bw() +
+  ylim(-10,0) +
+  theme(strip.text.y = element_text(margin = margin(0,0.5,0,0.5, "cm")),
+        axis.text.y = element_blank(),
+        #axis.text.x = element_text(angle=45,hjust=1),
+        axis.text.x = element_blank(),
+        axis.title = element_blank(),
+        axis.ticks = element_blank(),
+        plot.background = element_blank())
+
+
+## produce table of scale up to go underneath
+
+wd_gap_figure <- wd_gap_figure %>% 
+  mutate(factor=ifelse(year==2020,NA,factor)) %>% 
+  mutate(factor=ifelse(imp=="Current CDR",0,factor))
+
+p_factors_1 <- wd_gap_figure %>% 
+  filter(!is.na(value)) %>% 
+  filter(year==2030) %>% 
+  ggplot(.,aes(x=imp,y=0,label=factor)) +
+  geom_text(size=3.5,color="#525252") +
+  facet_grid(var~year,scales="free_x",space="free_x") +
+  theme_bw() + 
+  theme(axis.title = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_text(angle=45,hjust=1),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_blank())
+
+p_factors_2 <- wd_gap_figure %>% 
+  filter(!is.na(value)) %>% 
+  filter(year==2050) %>% 
+  ggplot(.,aes(x=imp,y=0,label=factor)) +
+  geom_text(size=3.5,color="#525252") +
+  facet_grid(var~year,scales="free_x",space="free_x") +
+  theme_bw() + 
+  theme(axis.title = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_text(angle=45,hjust=1),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_blank())
+
+p_factors_scenario_range <- ranges %>% 
+  ggplot(.,aes(x=str_wrap("Scenario median & ranges",20),y=0,label=str_wrap(factor,5))) +
+  geom_text(size=3.5,color="#525252") +
+  facet_grid(var~year,scales="free_x",space="free_x") +
+  theme_bw() + 
+  theme(axis.title = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_text(angle=45,hjust=1),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_blank())
+  
+
+  
+# p2_alternative <- (p_bars_2030 + p_bars_2050 + p_scenario_range + plot_layout(widths=c(5,5,2)))/ (p_factors_1 + p_factors_2 + p_factors_scenario_range + plot_layout(widths=c(5,5,2))) + plot_layout(heights=c(5,2))
+
+p2_alternative <- (p_bars_2030 + p_bars_2050 + p_scenario_range + plot_layout(widths=c(5,5,2)))
+
+p2_alternative
+
+```
+
+``` {r figure_cdr_gap_alternative,fig.width=9,fig.height=7,fig.path="../Results/",dev=c('png','pdf','svg'),dpi=300}
+
+p1 / p2_alternative + plot_layout(heights=c(3,3))
+
+
+```
+
