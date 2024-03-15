@@ -930,4 +930,29 @@ p1 / p2_alternative + plot_layout(heights=c(3,3))
 
 
 ```
+``` {r figure_concept,fig.width=9,fig.height=7,fig.path="../Results/",dev=c('png','pdf','svg'),dpi=300}
 
+wd_gap_figure$var <- as.factor(wd_gap_figure$var)
+wd_gap_figure$var <- fct_relevel(wd_gap_figure$var,"carbon_removal_non_land","carbon_removal_land_direct")
+
+wd_gap_figure %>% 
+  filter(year==2050) %>% 
+  ggplot(.,aes(x=imp,y=value,fill=figure_category,alpha=var)) +
+  geom_bar(stat="identity",color="#636363") +
+  scale_fill_manual(values=c("#66c2a5","#fc8d62")) +
+  scale_alpha_discrete(range=c(0.5,1)) +
+  theme_bw() +
+  ylim(-10,0) +
+  theme(legend.position="none",
+        #axis.text.x = element_text(angle=45,hjust=1),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        strip.text.y = element_blank(),
+        title =element_text(size=10),
+        strip.background.y = element_blank(),
+        plot.background = element_blank())
+
+
+```
