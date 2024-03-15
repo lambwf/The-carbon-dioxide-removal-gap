@@ -1,7 +1,7 @@
 ---
 title: "the-cdr-gap-sm-figure-fluxes"
 author: "William F. Lamb"
-output: html_document
+output: word_document
 ---
 
 ```{r setup, include=FALSE}
@@ -116,7 +116,7 @@ source("C:/Users/lamw/ownCloud/Resources/r/figure_style.R")
 
 ```{r lt-leds-cdr,fig.width=10,fig.height=8}
 
-wd_lts <- read.xlsx("../Data/cdr_gap_data.xlsx",sheet = 4,rows = c(2:111))
+wd_lts <- read.xlsx("../Data/the-cdr-gap-data.xlsx",sheet = 4,rows = c(2:111))
 
 # number of countries with quantified strategies
 length(unique(wd_lts$country[!is.na(wd_lts$scenario)]))

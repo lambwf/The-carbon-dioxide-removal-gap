@@ -16,7 +16,7 @@ library(patchwork)
 
 load("../Data/data_scenarios.R")
 load('C:/Users/lamw/ownCloud/Resources/data/data_edgar_v7_gwp100_ar6.RData')
-data_gap <- read.xlsx('../Data/cdr_gap_data.xlsx',sheet=2,cols = 1:7) %>%
+data_gap <- read.xlsx('../Data/the-cdr-gap-data.xlsx',sheet=2,cols = 1:7) %>%
   select(-value_mt) %>% 
   rename(value=value_gt)
 
@@ -46,7 +46,7 @@ data_current <- data_current %>%
   mutate(subcategory=NA) %>% 
   select(-var)
 
-data_current_cdr <- read.xlsx("../Data/cdr_gap_data.xlsx",sheet="current_cdr_other") %>% 
+data_current_cdr <- read.xlsx("../Data/the-cdr-gap-data.xlsx",sheet="current_cdr_other") %>% 
   filter(Year.Op.<=2023) %>% 
   group_by(Category) %>% 
   summarise(value=sum(Provided.Size)/1e9) %>% 
@@ -57,7 +57,7 @@ data_current_cdr <- read.xlsx("../Data/cdr_gap_data.xlsx",sheet="current_cdr_oth
 
 data_current <- rbind(data_current,data_current_cdr)
 
-data_current_cdr <- read.xlsx("../Data/cdr_gap_data.xlsx",sheet=2)
+data_current_cdr <- read.xlsx("../Data/the-cdr-gap-data.xlsx",sheet=2)
 data_current_cdr <- data_current_cdr %>% 
   filter(var=="current_cdr_direct") %>% 
   rename(value=value_gt)
